@@ -13,7 +13,7 @@ import {
 	type UseFieldArrayRemove,
 	type UseFormRegister,
 } from "react-hook-form";
-import type { SkemaType } from "../App";
+import type { SkemaType } from "../../App";
 
 export default function ElementField({
 	elementFields,

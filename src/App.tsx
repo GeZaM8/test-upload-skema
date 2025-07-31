@@ -11,7 +11,7 @@ import {
 } from "@chakra-ui/react";
 import { useFieldArray, useForm } from "react-hook-form";
 import mammoth from "mammoth";
-import ElementField from "./components/elementField";
+import ElementField from "./components/ui/ElementField";
 
 export type SkemaType = {
 	jurusan: string;
