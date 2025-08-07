@@ -3,14 +3,13 @@ import {
 	Button,
 	Field,
 	Heading,
-	HStack,
 	Input,
 	SimpleGrid,
 	VStack,
 } from "@chakra-ui/react";
 import { useFieldArray, useForm } from "react-hook-form";
 import mammoth from "mammoth";
-import ElementField from "./components/ui/ElementField";
+import UnitField from "./components/ui/UnitField";
 
 export type SkemaType = {
 	jurusan: string;
@@ -78,6 +77,8 @@ function App() {
 		if (!file) return;
 		const html = await extractDocxText(file);
 
+		console.log(html);
+
 		const parsedData = parseHTMLToSchema(html);
 		handleDocxData(parsedData);
 	}
@@ -101,70 +102,26 @@ function App() {
 					</Field.Root>
 				</SimpleGrid>
 
-				{fields.map((field, unitIndex) => {
-					const {
-						fields: elementFields,
-						append: appendElement,
-						remove: removeElement,
-					} = useFieldArray({
-						control,
-						name: `unit.${unitIndex}.elemen`,
-					});
-
-					return (
-						<VStack
-							key={field.id}
-							align="start"
-							w="full"
-							p="1em"
-							border="1px solid #ccc"
-							borderRadius="md"
-						>
-							<Heading as="h2" size="md">
-								Unit Kompetensi {unitIndex + 1}
-							</Heading>
-
-							<HStack w="full">
-								<Field.Root>
-									<Field.Label>Kode Unit</Field.Label>
-									<Input {...register(`unit.${unitIndex}.kode`)} />
-								</Field.Root>
-								<Field.Root>
-									<Field.Label>Judul Unit</Field.Label>
-									<Input {...register(`unit.${unitIndex}.judul`)} />
-								</Field.Root>
-							</HStack>
-
-							<ElementField
-								elementFields={elementFields}
-								useForm={{ control, register }}
-								unitIndex={unitIndex}
-								removeElement={removeElement}
-							/>
-
-							<Button
-								type="button"
-								onClick={() => appendElement({ id: "", text: "", item: [] })}
-							>
-								Tambah Elemen
-							</Button>
-
-							<Button
-								type="button"
-								variant="outline"
-								colorScheme="red"
-								onClick={() => remove(unitIndex)}
-							>
-								Hapus Unit
-							</Button>
-						</VStack>
-					);
-				})}
+				{fields.map((_field, unitIndex) => (
+					<UnitField
+						unitFields={fields}
+						useForm={{ control, register }}
+						removeUnit={remove}
+						unitIndex={unitIndex}
+						key={_field.id}
+					/>
+				))}
 
 				<Button
 					type="button"
 					colorScheme="teal"
-					onClick={() => append({ kode: "", judul: "", elemen: [] })}
+					onClick={() =>
+						append({
+							kode: "",
+							judul: "",
+							elemen: [{ id: "", text: "", item: [{ id: "", text: "" }] }],
+						})
+					}
 				>
 					Tambah Unit
 				</Button>
@@ -188,74 +145,95 @@ export function parseHTMLToSchema(html: string): SkemaType {
 	const parser = new DOMParser();
 	const doc = parser.parseFromString(html, "text/html");
 
-	const table = doc.querySelector("table");
-	if (!table) throw new Error("Tabel tidak ditemukan di HTML.");
+	const tables = Array.from(doc.querySelectorAll("table"));
+	console.log(tables);
+	if (tables.length === 0)
+		throw new Error("Tidak ada tabel ditemukan dalam dokumen.");
 
-	const rows = Array.from(table.querySelectorAll("tr"));
+	let jurusan = "";
+	let judulSkema = "";
+	let nomorSkema = "";
+	const units: Unit[] = [];
 
-	let kodeUnit = "";
-	let judulUnit = "";
-	const elemenList: Element[] = [];
+	let currentUnit: Unit | null = null;
+	let currentElemen: Element | null = null;
+	let elemenCounter = 1;
+	let itemCounter = 1;
 
-	let elementCounter = 1;
+	for (const table of tables) {
+		const rows = Array.from(table.querySelectorAll("tr"));
 
-	for (const row of rows) {
-		const cells = Array.from(row.querySelectorAll("td"));
+		for (const row of rows) {
+			const text = row.innerText.trim();
+			const cells = Array.from(row.querySelectorAll("td")).map((td) =>
+				td.innerText.trim()
+			);
 
-		if (cells.length === 0) continue;
+			if (text.includes("Skema Sertifikasi")) {
+				judulSkema = cells[1] || "";
+				nomorSkema = cells[3] || "";
+				continue;
+			}
 
-		const rowText = row.innerText.trim();
+			if (text.includes("Kode Unit")) {
+				const kodeMatch = text.match(/Kode Unit\s*:?\s*(.+)/);
+				const kode =
+					kodeMatch?.[1]?.trim() || cells[1]?.replace(":", "").trim() || "";
+				currentUnit = {
+					kode,
+					judul: "",
+					elemen: [],
+				};
+				continue;
+			}
 
-		// Ambil Kode Unit
-		if (rowText.includes("Kode Unit")) {
-			const match = rowText.match(/Kode Unit\s*:\s*(.+)/);
-			if (match) kodeUnit = match[1];
-		}
+			if (text.includes("Judul Unit")) {
+				const judulMatch = text.match(/Judul Unit\s*:?\s*(.+)/);
+				const judul =
+					judulMatch?.[1]?.trim() || cells[1]?.replace(":", "").trim() || "";
+				if (currentUnit) {
+					currentUnit.judul = judul;
+					units.push(currentUnit);
+					currentUnit = null;
+				}
+				continue;
+			}
 
-		// Ambil Judul Unit
-		if (rowText.includes("Judul Unit")) {
-			const match = rowText.match(/Judul Unit\s*:\s*(.+)/);
-			if (match) judulUnit = match[1].trim();
-		}
+			if (text.match(/Elemen\s*\d+\s*:/)) {
+				const match = text.match(/Elemen\s*(\d+)\s*:\s*(.*)/);
+				const id = match?.[1] || `${elemenCounter}`;
+				const elemenText = match?.[2]?.trim() || `Elemen ${elemenCounter}`;
+				const ol = row.querySelector("ol");
+				const items = ol
+					? Array.from(ol.querySelectorAll("li")).map((li, i) => ({
+							id: `${elemenCounter}.${i + 1}`,
+							text: li.textContent?.trim() || "",
+					  }))
+					: [];
 
-		// Ambil Elemen dan Kriteria
-		if (rowText.includes("Elemen")) {
-			const elemenMatch = rowText.match(/Elemen\s*\d+\s*:\s*(.+)/);
-			const elemenText = elemenMatch
-				? elemenMatch[1].trim()
-				: `Elemen ${elementCounter}`;
-
-			const ol = row.querySelector("ol");
-			const items = ol
-				? Array.from(ol.querySelectorAll("li")).map((li, i) => ({
-						id: `${elementCounter}.${i + 1}`,
-						text: li.textContent?.trim() || "",
-				  }))
-				: [];
-
-			elemenList.push({
-				id: `${elementCounter++}`,
-				text: elemenText,
-				item: items,
-			});
+				currentElemen = {
+					id,
+					text: elemenText,
+					item: items,
+				};
+				if (units.length > 0) {
+					units[units.length - 1].elemen.push(currentElemen);
+				}
+				elemenCounter++;
+				itemCounter = 1;
+				continue;
+			}
 		}
 	}
 
-	const skema: SkemaType = {
-		jurusan: "",
-		judul: judulUnit,
-		nomor: kodeUnit,
-		unit: [
-			{
-				kode: kodeUnit,
-				judul: judulUnit,
-				elemen: elemenList,
-			},
-		],
-	};
+	const filteredUnits = units.filter((unit) => unit.elemen.length > 0);
 
-	console.log(skema);
-	return skema;
+	return {
+		jurusan,
+		judul: judulSkema,
+		nomor: nomorSkema,
+		unit: filteredUnits,
+	};
 }
 
 export default App;
